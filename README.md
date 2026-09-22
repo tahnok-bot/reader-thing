@@ -5,13 +5,20 @@ A personal read-it-later service. Send it a URL, get back an EPUB to read on
 
 ## How it works
 
-Give it a web page URL. It extracts the article, converts it to a clean EPUB,
-and stores it, ready to read on your device.
+Submit a web page URL through a simple page. It fetches the HTML, extracts the
+article, converts it to a clean EPUB, and stores it, ready to read on your
+device.
 
 ## Architecture
 
-- **Storage** — EPUBs live in an S3 bucket.
+- **Language** — Python. FastAPI serving a JSON API and a basic submit page.
+- **Extraction** — `trafilatura` on the fetched HTML.
+- **EPUB** — `ebooklib`.
+- **Storage** — EPUBs live in an S3 bucket; their object keys are recorded in
+  SQLite.
 - **State** — everything else in a local SQLite database.
+- **Config** — S3 credentials, bucket name, and the auth token are read from
+  the environment / a `.env` file.
 - **Auth** — single user, so a shared secret is enough.
 
 ## Roadmap
