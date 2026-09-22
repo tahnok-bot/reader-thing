@@ -21,6 +21,19 @@ device.
   the environment / a `.env` file.
 - **Auth** — single user, so a shared secret is enough.
 
+## Development
+
+Managed with [uv](https://docs.astral.sh/uv/).
+
+```sh
+uv sync --extra dev   # install deps
+uv run pytest         # run tests
+uv run reader-thing   # serve on :8000
+```
+
+Copy `.env.example` to `.env` and fill in the S3 bucket, credentials, and auth
+token first.
+
 ## Roadmap
 
 - Accept PDFs and plain EPUBs, not just web pages.
