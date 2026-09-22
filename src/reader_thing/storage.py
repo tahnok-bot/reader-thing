@@ -24,9 +24,15 @@ class MemoryStorage:
 class S3Storage:
     def __init__(self, bucket: str, endpoint_url: str | None = None, client=None):
         import boto3
+        from botocore.config import Config
 
         self.bucket = bucket
-        self.client = client or boto3.client("s3", endpoint_url=endpoint_url)
+        # Path-style addressing is required by S3-compatible stores like Garage.
+        self.client = client or boto3.client(
+            "s3",
+            endpoint_url=endpoint_url,
+            config=Config(s3={"addressing_style": "path"}),
+        )
 
     def put(self, key, data, content_type=EPUB_TYPE) -> None:
         self.client.put_object(
