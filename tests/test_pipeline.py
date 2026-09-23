@@ -14,6 +14,34 @@ def test_process_url(conn, sample_html, monkeypatch):
     assert storage.get(row["s3_key"])[:2] == b"PK"
 
 
+def test_process_url_embeds_images(conn, monkeypatch):
+    import io
+    import zipfile
+    from pathlib import Path
+
+    html = (Path(__file__).parent / "fixtures" / "hackaday.html").read_text()
+    monkeypatch.setattr(extract_mod, "fetch", lambda url: html)
+    fetched = []
+
+    def fake_image(url):
+        fetched.append(url)
+        if "WZ074-004" in url:
+            raise RuntimeError("404")
+        return b"\xff\xd8jpeg", "image/jpeg"
+
+    monkeypatch.setattr(extract_mod, "fetch_image", fake_image)
+    storage = MemoryStorage()
+
+    row = process_url("https://hackaday.com/2026/09/21/x/", conn, storage)
+
+    assert len(fetched) == 3  # two body images plus the og:image
+    z = zipfile.ZipFile(io.BytesIO(storage.get(row["s3_key"])))
+    article = z.read("EPUB/article.xhtml").decode()
+    assert "EPUB/images/cover.jpg" in z.namelist()
+    assert article.count("<img") == 2  # cover + the one body image that loaded
+    assert "WZ074-004" not in article
+
+
 def test_process_url_rejects_empty(conn, monkeypatch):
     monkeypatch.setattr(extract_mod, "fetch", lambda url: "<html><body></body></html>")
     try:
@@ -54,3 +82,4 @@ def test_process_pending_records_failure(conn, monkeypatch):
     row = get_article(conn, article_id)
     assert row["status"] == "failed"
     assert "fetch exploded" in row["error"]
+
