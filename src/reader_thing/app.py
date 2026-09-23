@@ -1,3 +1,6 @@
+import xml.etree.ElementTree as ET
+from datetime import datetime, timezone
+from email.utils import format_datetime
 from html import escape
 
 from fastapi import BackgroundTasks, FastAPI, Form, HTTPException, Request
@@ -58,6 +61,17 @@ def create_app(config: Config | None = None, conn=None, storage=None) -> FastAPI
         check_auth(request)
         return [dict(r) for r in list_articles(conn)]
 
+    @app.get("/feed.xml")
+    def feed(request: Request):
+        # For KOReader's News Downloader: with "download full article" on,
+        # it fetches each item link and saves the EPUB as-is.
+        check_auth(request)
+        ready = [r for r in list_articles(conn) if r["status"] == "ready"]
+        return Response(
+            content=_rss(ready, str(request.base_url).rstrip("/")),
+            media_type="application/rss+xml",
+        )
+
     @app.get("/articles/{article_id}")
     def download(article_id: int, request: Request):
         check_auth(request)
@@ -73,6 +87,25 @@ def create_app(config: Config | None = None, conn=None, storage=None) -> FastAPI
         )
 
     return app
+
+
+def _rss(rows, base: str) -> bytes:
+    rss = ET.Element("rss", version="2.0")
+    channel = ET.SubElement(rss, "channel")
+    ET.SubElement(channel, "title").text = "reader-thing"
+    ET.SubElement(channel, "link").text = f"{base}/"
+    ET.SubElement(channel, "description").text = "Saved articles as EPUB"
+    for r in rows:
+        link = f"{base}/articles/{r['id']}"
+        created = datetime.fromisoformat(r["created_at"]).replace(tzinfo=timezone.utc)
+        item = ET.SubElement(channel, "item")
+        ET.SubElement(item, "title").text = r["title"]
+        ET.SubElement(item, "link").text = link
+        ET.SubElement(item, "guid").text = link
+        ET.SubElement(item, "pubDate").text = format_datetime(created)
+        ET.SubElement(item, "description").text = r["url"]
+        ET.SubElement(item, "enclosure", url=link, type=EPUB_TYPE, length="0")
+    return ET.tostring(rss, encoding="utf-8", xml_declaration=True)
 
 
 def _page(rows, token: str = "") -> str:
