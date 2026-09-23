@@ -29,7 +29,13 @@ Managed with [uv](https://docs.astral.sh/uv/).
 uv sync --extra dev   # install deps
 uv run pytest         # run tests
 uv run reader-thing   # serve on :8000
+
+uv run reader-thing build URL [-o out.epub]   # EPUB to a local file; no DB/S3
+uv run reader-thing reprocess ID... | --all  # rebuild stored articles in place
 ```
+
+`build` is handy for previewing extraction changes. `reprocess` picks those
+changes up for articles you've already saved, overwriting their EPUBs in S3.
 
 Copy `.env.example` to `.env` and fill in the S3 bucket, credentials, and auth
 token first.

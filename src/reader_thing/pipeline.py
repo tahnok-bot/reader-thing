@@ -53,3 +53,15 @@ def process_pending(conn, storage, article_id, url):
     except Exception as e:  # noqa: BLE001 - record the failure instead of crashing
         mark_failed(conn, article_id, str(e))
 
+
+def reprocess(conn, storage, article_id):
+    """Rebuild a stored article, overwriting its EPUB in place.
+
+    Raises on failure and leaves the row (and any existing EPUB) untouched.
+    """
+    row = get_article(conn, article_id)
+    if row is None:
+        raise LookupError(f"no article with id {article_id}")
+    title, key = _build_and_store(row["url"], storage, key=row["s3_key"] or None)
+    mark_ready(conn, article_id, title, key)
+    return get_article(conn, article_id)

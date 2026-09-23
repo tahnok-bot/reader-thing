@@ -83,3 +83,57 @@ def test_process_pending_records_failure(conn, monkeypatch):
     assert row["status"] == "failed"
     assert "fetch exploded" in row["error"]
 
+
+def test_reprocess_overwrites_in_place(conn, sample_html, monkeypatch):
+    from reader_thing.pipeline import reprocess
+
+    monkeypatch.setattr(extract_mod, "fetch", lambda url: sample_html)
+    storage = MemoryStorage()
+    row = process_url("http://example.com/a", conn, storage)
+    storage.put(row["s3_key"], b"old epub")
+
+    new = reprocess(conn, storage, row["id"])
+
+    assert new["s3_key"] == row["s3_key"]
+    assert storage.get(row["s3_key"])[:2] == b"PK"
+
+
+def test_reprocess_recovers_a_failed_article(conn, sample_html, monkeypatch):
+    from reader_thing.db import insert_pending, mark_failed
+    from reader_thing.pipeline import reprocess
+
+    article_id = insert_pending(conn, "http://example.com/a")
+    mark_failed(conn, article_id, "timed out")
+    monkeypatch.setattr(extract_mod, "fetch", lambda url: sample_html)
+    storage = MemoryStorage()
+
+    row = reprocess(conn, storage, article_id)
+
+    assert row["status"] == "ready"
+    assert row["error"] is None
+    assert storage.get(row["s3_key"])[:2] == b"PK"
+
+
+def test_reprocess_failure_leaves_article_alone(conn, sample_html, monkeypatch):
+    from reader_thing.pipeline import reprocess
+
+    monkeypatch.setattr(extract_mod, "fetch", lambda url: sample_html)
+    storage = MemoryStorage()
+    row = process_url("http://example.com/a", conn, storage)
+    before = storage.get(row["s3_key"])
+
+    def boom(url):
+        raise RuntimeError("site is down")
+
+    monkeypatch.setattr(extract_mod, "fetch", boom)
+    try:
+        reprocess(conn, storage, row["id"])
+    except RuntimeError:
+        pass
+    else:
+        raise AssertionError("expected the fetch error to propagate")
+
+    from reader_thing.db import get_article
+
+    assert get_article(conn, row["id"])["status"] == "ready"
+    assert storage.get(row["s3_key"]) == before
