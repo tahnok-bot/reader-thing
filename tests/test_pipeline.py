@@ -21,3 +21,36 @@ def test_process_url_rejects_empty(conn, monkeypatch):
     except ValueError:
         return
     raise AssertionError("expected ValueError for empty content")
+
+
+def test_process_pending_marks_ready(conn, sample_html, monkeypatch):
+    from reader_thing.db import get_article, insert_pending
+    from reader_thing.pipeline import process_pending
+
+    monkeypatch.setattr(extract_mod, "fetch", lambda url: sample_html)
+    storage = MemoryStorage()
+    article_id = insert_pending(conn, "http://example.com/a")
+
+    process_pending(conn, storage, article_id, "http://example.com/a")
+
+    row = get_article(conn, article_id)
+    assert row["status"] == "ready"
+    assert row["title"] == "Test Article"
+    assert storage.get(row["s3_key"])[:2] == b"PK"
+
+
+def test_process_pending_records_failure(conn, monkeypatch):
+    from reader_thing.db import get_article, insert_pending
+    from reader_thing.pipeline import process_pending
+
+    def boom(url):
+        raise RuntimeError("fetch exploded")
+
+    monkeypatch.setattr(extract_mod, "fetch", boom)
+    article_id = insert_pending(conn, "http://example.com/bad")
+
+    process_pending(conn, MemoryStorage(), article_id, "http://example.com/bad")
+
+    row = get_article(conn, article_id)
+    assert row["status"] == "failed"
+    assert "fetch exploded" in row["error"]

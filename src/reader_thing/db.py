@@ -7,6 +7,7 @@ CREATE TABLE IF NOT EXISTS articles (
     title      TEXT NOT NULL,
     s3_key     TEXT NOT NULL,
     status     TEXT NOT NULL DEFAULT 'ready',
+    error      TEXT,
     created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 """
@@ -21,6 +22,9 @@ def connect(path: str) -> sqlite3.Connection:
 
 def init_db(conn: sqlite3.Connection) -> None:
     conn.executescript(SCHEMA)
+    cols = {r["name"] for r in conn.execute("PRAGMA table_info(articles)")}
+    if "error" not in cols:  # migrate databases created before the error column
+        conn.execute("ALTER TABLE articles ADD COLUMN error TEXT")
     conn.commit()
 
 
@@ -31,6 +35,28 @@ def insert_article(conn, url, title, s3_key, status="ready") -> int:
     )
     conn.commit()
     return cur.lastrowid
+
+
+def insert_pending(conn, url) -> int:
+    """Record an article we've accepted but not yet fetched."""
+    return insert_article(conn, url=url, title=url, s3_key="", status="pending")
+
+
+def mark_ready(conn, article_id, title, s3_key) -> None:
+    conn.execute(
+        "UPDATE articles SET title = ?, s3_key = ?, status = 'ready', error = NULL "
+        "WHERE id = ?",
+        (title, s3_key, article_id),
+    )
+    conn.commit()
+
+
+def mark_failed(conn, article_id, error) -> None:
+    conn.execute(
+        "UPDATE articles SET status = 'failed', error = ? WHERE id = ?",
+        (error, article_id),
+    )
+    conn.commit()
 
 
 def get_article(conn, article_id):

@@ -1,11 +1,16 @@
 from html import escape
 
-from fastapi import FastAPI, Form, HTTPException, Request
-from fastapi.responses import HTMLResponse, RedirectResponse, Response
+from fastapi import BackgroundTasks, FastAPI, Form, HTTPException, Request
+from fastapi.responses import (
+    HTMLResponse,
+    JSONResponse,
+    RedirectResponse,
+    Response,
+)
 
 from .config import Config, load_config
-from .db import connect, get_article, list_articles
-from .pipeline import process_url
+from .db import connect, get_article, insert_pending, list_articles
+from .pipeline import process_pending
 from .storage import EPUB_TYPE, S3Storage
 
 
@@ -34,14 +39,19 @@ def create_app(config: Config | None = None, conn=None, storage=None) -> FastAPI
         return _page(list_articles(conn), request.query_params.get("token", ""))
 
     @app.post("/articles")
-    def create(request: Request, url: str = Form(...)):
+    def create(request: Request, background: BackgroundTasks, url: str = Form(...)):
         check_auth(request)
-        try:
-            process_url(url, conn, storage)
-        except Exception as e:
-            raise HTTPException(400, f"could not process: {e}")
-        token = request.query_params.get("token", "")
-        return RedirectResponse("/" + (f"?token={token}" if token else ""), status_code=303)
+        article_id = insert_pending(conn, url)
+        background.add_task(process_pending, conn, storage, article_id, url)
+        # The browser submit page wants to land back on the list; API clients
+        # (e.g. the Android share shortcut) want a body they can read.
+        if "text/html" in request.headers.get("accept", ""):
+            token = request.query_params.get("token", "")
+            dest = "/" + (f"?token={token}" if token else "")
+            return RedirectResponse(dest, status_code=303)
+        return JSONResponse(
+            {"id": article_id, "url": url, "status": "pending"}, status_code=202
+        )
 
     @app.get("/articles")
     def api_list(request: Request):
@@ -54,6 +64,8 @@ def create_app(config: Config | None = None, conn=None, storage=None) -> FastAPI
         row = get_article(conn, article_id)
         if not row:
             raise HTTPException(404, "not found")
+        if row["status"] != "ready":
+            raise HTTPException(409, f"not ready: {row['status']}")
         return Response(
             content=storage.get(row["s3_key"]),
             media_type=EPUB_TYPE,
@@ -65,11 +77,16 @@ def create_app(config: Config | None = None, conn=None, storage=None) -> FastAPI
 
 def _page(rows, token: str = "") -> str:
     q = f"?token={escape(token)}" if token else ""
-    items = "".join(
-        f'<li><a href="/articles/{r["id"]}{q}">{escape(r["title"])}</a> '
-        f'<small>{escape(r["url"])}</small></li>'
-        for r in rows
-    )
+
+    def render(r) -> str:
+        title, url, status = escape(r["title"]), escape(r["url"]), r["status"]
+        if status == "ready":
+            head = f'<a href="/articles/{r["id"]}{q}">{title}</a>'
+        else:
+            head = f'{title} <em>[{escape(status)}]</em>'
+        return f'<li>{head} <small>{url}</small></li>'
+
+    items = "".join(render(r) for r in rows)
     return f"""<!doctype html>
 <html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">

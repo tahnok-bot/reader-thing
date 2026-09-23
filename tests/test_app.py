@@ -4,9 +4,28 @@ def test_index_page(client):
     assert "reader-thing" in r.text
 
 
-def test_submit_list_and_download(client):
-    r = client.post("/articles", data={"url": "http://example.com/a"}, follow_redirects=False)
+def test_submit_returns_json_for_api_clients(client):
+    r = client.post("/articles", data={"url": "http://example.com/a"})
+    assert r.status_code == 202
+    body = r.json()
+    assert body["url"] == "http://example.com/a"
+    assert body["status"] == "pending"
+    assert isinstance(body["id"], int)
+
+
+def test_submit_redirects_for_browsers(client):
+    r = client.post(
+        "/articles",
+        data={"url": "http://example.com/b"},
+        headers={"Accept": "text/html"},
+        follow_redirects=False,
+    )
     assert r.status_code == 303
+
+
+def test_submit_list_and_download(client):
+    r = client.post("/articles", data={"url": "http://example.com/a"})
+    assert r.status_code == 202
 
     items = client.get("/articles").json()
     assert len(items) == 1
