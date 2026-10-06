@@ -40,6 +40,13 @@ def sample_pdf():
 
 
 @pytest.fixture
+def sample_epub():
+    from reader_thing.epub import build_epub
+
+    return build_epub("Test Article", "<p>Hello</p>", "http://example.com/a")
+
+
+@pytest.fixture
 def conn():
     c = connect(":memory:")
     yield c

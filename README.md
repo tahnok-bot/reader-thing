@@ -7,7 +7,7 @@ A personal read-it-later service. Send it a URL, get back an EPUB to read on
 
 Submit a web page URL through a simple page. It fetches the HTML, extracts the
 article, converts it to a clean EPUB, and stores it, ready to read on your
-device. PDF URLs are stored as-is, titled from the PDF's metadata.
+device. PDF and EPUB URLs are stored as-is, titled from their metadata.
 
 ## Architecture
 
@@ -42,5 +42,5 @@ token first.
 
 ## Roadmap
 
-- Accept plain EPUBs, and uploaded files rather than just URLs.
+- Accept uploaded files, not just URLs.
 - Scheduled agent runs that fetch articles from a site matching a filter prompt.

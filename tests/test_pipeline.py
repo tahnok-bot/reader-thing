@@ -156,3 +156,14 @@ def test_process_url_rejects_broken_pdf(conn, monkeypatch):
     monkeypatch.setattr(extract_mod, "fetch", lambda url: b"%PDF-1.7 garbage")
     with pytest.raises(Exception):
         process_url("http://example.com/bad.pdf", conn, MemoryStorage())
+
+
+def test_process_url_stores_epubs_as_is(conn, sample_epub, monkeypatch):
+    monkeypatch.setattr(extract_mod, "fetch", lambda url: sample_epub)
+    storage = MemoryStorage()
+
+    row = process_url("http://example.com/book.epub", conn, storage)
+
+    assert row["title"] == "Test Article"
+    assert row["s3_key"].startswith("epubs/")
+    assert storage.get(row["s3_key"]) == sample_epub

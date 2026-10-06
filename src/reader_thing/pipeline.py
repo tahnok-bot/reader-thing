@@ -10,11 +10,11 @@ from .storage import kind
 def build(url):
     """Fetch, extract, and build an EPUB for a URL. Returns (title, file bytes).
 
-    PDFs are passed through as-is rather than converted.
+    PDFs and EPUBs are passed through as-is rather than converted.
     """
     html = _extract.fetch(url)
     if isinstance(html, bytes):
-        return _extract.pdf_title(html, url), html
+        return _extract.document_title(html, url), html
     title, body, lead_image = _extract.extract(html, url=url)
     if not body.strip():
         raise ValueError("no article content extracted")

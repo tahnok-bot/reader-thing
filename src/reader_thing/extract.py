@@ -8,6 +8,7 @@ from urllib.parse import unquote, urlparse
 
 import httpx
 import trafilatura
+from ebooklib import epub
 from pypdf import PdfReader
 from trafilatura.metadata import extract_metadata
 
@@ -15,21 +16,42 @@ UA = "reader-thing/0.1 (+https://github.com/)"
 
 
 def fetch(url: str) -> str | bytes:
-    """Return the page's HTML, or the raw bytes if the URL is a PDF."""
+    """Return the page's HTML, or the raw bytes if the URL is a PDF or EPUB."""
     r = httpx.get(
         url, follow_redirects=True, timeout=30.0, headers={"User-Agent": UA}
     )
     r.raise_for_status()
-    # Some servers label PDFs application/octet-stream, so sniff too.
-    if "pdf" in r.headers.get("content-type", "") or r.content.startswith(b"%PDF-"):
+    # Servers often label these application/octet-stream, so sniff too.
+    content_type = r.headers.get("content-type", "")
+    if "pdf" in content_type or "epub" in content_type or is_document(r.content):
         return r.content
     return r.text
 
 
-def pdf_title(data: bytes, url: str | None = None) -> str:
-    """Title from the PDF's metadata, else its filename. Raises if not a PDF."""
-    reader = PdfReader(io.BytesIO(data))
-    title = ((reader.metadata or {}).get("/Title") or "").strip()
+def is_pdf(data: bytes) -> bool:
+    return data.startswith(b"%PDF-")
+
+
+def is_epub(data: bytes) -> bool:
+    # An EPUB is a zip whose first entry is an uncompressed "mimetype" file.
+    return data.startswith(b"PK\x03\x04") and b"application/epub+zip" in data[:100]
+
+
+def is_document(data: bytes) -> bool:
+    return is_pdf(data) or is_epub(data)
+
+
+def document_title(data: bytes, url: str | None = None) -> str:
+    """Title from a PDF or EPUB's metadata, else the URL's filename.
+
+    Raises if the file can't be parsed.
+    """
+    if is_pdf(data):
+        title = (PdfReader(io.BytesIO(data)).metadata or {}).get("/Title")
+    else:
+        book = epub.read_epub(io.BytesIO(data), {"ignore_ncx": True})
+        title = next(iter(book.get_metadata("DC", "title")), (None,))[0]
+    title = (title or "").strip()
     if title:
         return title
     name = PurePosixPath(unquote(urlparse(url or "").path)).stem

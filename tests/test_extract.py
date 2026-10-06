@@ -44,15 +44,35 @@ def test_extract_keeps_bold_lead_ins_links_and_lists():
 
 
 def test_pdf_title_from_metadata(sample_pdf):
-    from reader_thing.extract import pdf_title
+    from reader_thing.extract import document_title
 
-    assert pdf_title(sample_pdf) == "A Paper About Sensors"
+    assert document_title(sample_pdf) == "A Paper About Sensors"
 
 
 def test_pdf_title_falls_back_to_filename():
     from conftest import make_pdf
 
-    from reader_thing.extract import pdf_title
+    from reader_thing.extract import document_title
 
     url = "https://example.com/d/my%20paper.pdf?version=2"
-    assert pdf_title(make_pdf(), url) == "my paper"
+    assert document_title(make_pdf(), url) == "my paper"
+
+
+def test_epub_title_from_metadata(sample_epub):
+    from reader_thing.extract import document_title, is_epub
+
+    assert is_epub(sample_epub)
+    assert document_title(sample_epub) == "Test Article"
+
+
+def test_html_and_generic_zips_are_not_documents():
+    import io
+    import zipfile
+
+    from reader_thing.extract import is_document
+
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w") as z:
+        z.writestr("readme.txt", "hi")
+    assert not is_document(buf.getvalue())
+    assert not is_document(b"<!doctype html><html></html>")
