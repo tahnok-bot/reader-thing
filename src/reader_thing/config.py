@@ -10,6 +10,8 @@ class Config:
     s3_bucket: str
     s3_endpoint_url: str | None
     auth_token: str | None
+    host: str = "0.0.0.0"
+    port: int = 8000
 
 
 def load_config() -> Config:
@@ -19,4 +21,6 @@ def load_config() -> Config:
         s3_bucket=os.getenv("S3_BUCKET", ""),
         s3_endpoint_url=os.getenv("S3_ENDPOINT_URL") or None,
         auth_token=os.getenv("AUTH_TOKEN") or None,
+        host=os.getenv("HOST", "0.0.0.0"),
+        port=int(os.getenv("PORT", "8000")),
     )

@@ -8,7 +8,7 @@ def main(argv=None) -> int:
     parser = argparse.ArgumentParser(prog="reader-thing")
     sub = parser.add_subparsers(dest="command")
 
-    sub.add_parser("serve", help="run the web service on :8000 (the default)")
+    sub.add_parser("serve", help="run the web service on $HOST:$PORT (the default)")
 
     p = sub.add_parser("build", help="build an EPUB (or fetch a PDF) for a URL into a local file")
     p.add_argument("url")
@@ -33,8 +33,10 @@ def _serve() -> None:
     import uvicorn
 
     from .app import create_app
+    from .config import load_config
 
-    uvicorn.run(create_app(), host="0.0.0.0", port=8000)
+    config = load_config()
+    uvicorn.run(create_app(config), host=config.host, port=config.port)
 
 
 def _build(url, output) -> int:
