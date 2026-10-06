@@ -14,7 +14,7 @@ from fastapi.responses import (
 from .config import Config, load_config
 from .db import connect, get_article, insert_pending, list_articles
 from .pipeline import process_pending
-from .storage import EPUB_TYPE, S3Storage
+from .storage import S3Storage, media_type
 
 
 def create_app(config: Config | None = None, conn=None, storage=None) -> FastAPI:
@@ -64,7 +64,7 @@ def create_app(config: Config | None = None, conn=None, storage=None) -> FastAPI
     @app.get("/feed.xml")
     def feed(request: Request):
         # For KOReader's News Downloader: with "download full article" on,
-        # it fetches each item link and saves the EPUB as-is.
+        # it fetches each item link and saves the EPUB (or PDF) as-is.
         check_auth(request)
         ready = [r for r in list_articles(conn) if r["status"] == "ready"]
         return Response(
@@ -80,10 +80,12 @@ def create_app(config: Config | None = None, conn=None, storage=None) -> FastAPI
             raise HTTPException(404, "not found")
         if row["status"] != "ready":
             raise HTTPException(409, f"not ready: {row['status']}")
+        key = row["s3_key"]
+        ext = key.rsplit(".", 1)[-1]
         return Response(
-            content=storage.get(row["s3_key"]),
-            media_type=EPUB_TYPE,
-            headers={"Content-Disposition": f'attachment; filename="{article_id}.epub"'},
+            content=storage.get(key),
+            media_type=media_type(key),
+            headers={"Content-Disposition": f'attachment; filename="{article_id}.{ext}"'},
         )
 
     return app
@@ -94,7 +96,7 @@ def _rss(rows, base: str) -> bytes:
     channel = ET.SubElement(rss, "channel")
     ET.SubElement(channel, "title").text = "reader-thing"
     ET.SubElement(channel, "link").text = f"{base}/"
-    ET.SubElement(channel, "description").text = "Saved articles as EPUB"
+    ET.SubElement(channel, "description").text = "Saved articles as EPUB or PDF"
     for r in rows:
         link = f"{base}/articles/{r['id']}"
         created = datetime.fromisoformat(r["created_at"]).replace(tzinfo=timezone.utc)
@@ -104,7 +106,9 @@ def _rss(rows, base: str) -> bytes:
         ET.SubElement(item, "guid").text = link
         ET.SubElement(item, "pubDate").text = format_datetime(created)
         ET.SubElement(item, "description").text = r["url"]
-        ET.SubElement(item, "enclosure", url=link, type=EPUB_TYPE, length="0")
+        ET.SubElement(
+            item, "enclosure", url=link, type=media_type(r["s3_key"]), length="0"
+        )
     return ET.tostring(rss, encoding="utf-8", xml_declaration=True)
 
 

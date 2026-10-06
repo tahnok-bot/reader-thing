@@ -61,3 +61,19 @@ def test_feed_lists_ready_articles_as_epub_links(client, conn):
 
     dl = client.get(link)
     assert dl.headers["content-type"] == "application/epub+zip"
+
+
+def test_pdf_download_and_feed(client, sample_pdf, monkeypatch):
+    import xml.etree.ElementTree as ET
+
+    monkeypatch.setattr("reader_thing.extract.fetch", lambda url: sample_pdf)
+    client.post("/articles", data={"url": "http://example.com/paper.pdf"})
+
+    dl = client.get("/articles/1")
+    assert dl.headers["content-type"] == "application/pdf"
+    assert 'filename="1.pdf"' in dl.headers["content-disposition"]
+    assert dl.content == sample_pdf
+
+    item = ET.fromstring(client.get("/feed.xml").content).find("channel/item")
+    assert item.findtext("title") == "A Paper About Sensors"
+    assert item.find("enclosure").get("type") == "application/pdf"

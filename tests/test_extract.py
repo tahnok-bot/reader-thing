@@ -41,3 +41,18 @@ def test_extract_keeps_bold_lead_ins_links_and_lists():
     assert '<a href="https://darioamodei.com/post/we-must-pace-the-frontier">' in body
     assert "<li>" in body
     assert image.endswith("-1200x630.jpg")
+
+
+def test_pdf_title_from_metadata(sample_pdf):
+    from reader_thing.extract import pdf_title
+
+    assert pdf_title(sample_pdf) == "A Paper About Sensors"
+
+
+def test_pdf_title_falls_back_to_filename():
+    from conftest import make_pdf
+
+    from reader_thing.extract import pdf_title
+
+    url = "https://example.com/d/my%20paper.pdf?version=2"
+    assert pdf_title(make_pdf(), url) == "my paper"

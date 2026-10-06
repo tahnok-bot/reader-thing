@@ -20,6 +20,25 @@ def sample_html():
     return SAMPLE_HTML
 
 
+def make_pdf(title=None) -> bytes:
+    import io
+
+    from pypdf import PdfWriter
+
+    w = PdfWriter()
+    w.add_blank_page(width=200, height=200)
+    if title:
+        w.add_metadata({"/Title": title})
+    buf = io.BytesIO()
+    w.write(buf)
+    return buf.getvalue()
+
+
+@pytest.fixture
+def sample_pdf():
+    return make_pdf("A Paper About Sensors")
+
+
 @pytest.fixture
 def conn():
     c = connect(":memory:")

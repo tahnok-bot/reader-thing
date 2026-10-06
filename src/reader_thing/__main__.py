@@ -10,9 +10,9 @@ def main(argv=None) -> int:
 
     sub.add_parser("serve", help="run the web service on :8000 (the default)")
 
-    p = sub.add_parser("build", help="build an EPUB for a URL into a local file")
+    p = sub.add_parser("build", help="build an EPUB (or fetch a PDF) for a URL into a local file")
     p.add_argument("url")
-    p.add_argument("-o", "--output", type=Path, help="default: <title>.epub")
+    p.add_argument("-o", "--output", type=Path, help="default: <title>.epub or .pdf")
 
     p = sub.add_parser("reprocess", help="rebuild stored articles in place")
     p.add_argument("ids", nargs="*", type=int, metavar="ID")
@@ -40,9 +40,10 @@ def _serve() -> None:
 def _build(url, output) -> int:
     """Doesn't touch the database or S3, so it's safe for previewing changes."""
     from .pipeline import build
+    from .storage import kind
 
     title, data = build(url)
-    output = output or Path(_filename(title) + ".epub")
+    output = output or Path(f"{_filename(title)}.{kind(data)[0]}")
     output.write_bytes(data)
     print(f"{title} -> {output}")
     return 0

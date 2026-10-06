@@ -1,6 +1,16 @@
 from typing import Protocol
 
 EPUB_TYPE = "application/epub+zip"
+PDF_TYPE = "application/pdf"
+
+
+def kind(data: bytes) -> tuple[str, str]:
+    """(file extension, media type) for a stored document."""
+    return ("pdf", PDF_TYPE) if data.startswith(b"%PDF-") else ("epub", EPUB_TYPE)
+
+
+def media_type(key: str) -> str:
+    return PDF_TYPE if key.endswith(".pdf") else EPUB_TYPE
 
 
 class Storage(Protocol):

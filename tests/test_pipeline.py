@@ -137,3 +137,22 @@ def test_reprocess_failure_leaves_article_alone(conn, sample_html, monkeypatch):
 
     assert get_article(conn, row["id"])["status"] == "ready"
     assert storage.get(row["s3_key"]) == before
+
+
+def test_process_url_stores_pdfs_as_is(conn, sample_pdf, monkeypatch):
+    monkeypatch.setattr(extract_mod, "fetch", lambda url: sample_pdf)
+    storage = MemoryStorage()
+
+    row = process_url("http://example.com/paper.pdf", conn, storage)
+
+    assert row["title"] == "A Paper About Sensors"
+    assert row["s3_key"].startswith("pdfs/") and row["s3_key"].endswith(".pdf")
+    assert storage.get(row["s3_key"]) == sample_pdf
+
+
+def test_process_url_rejects_broken_pdf(conn, monkeypatch):
+    import pytest
+
+    monkeypatch.setattr(extract_mod, "fetch", lambda url: b"%PDF-1.7 garbage")
+    with pytest.raises(Exception):
+        process_url("http://example.com/bad.pdf", conn, MemoryStorage())

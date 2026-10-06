@@ -47,3 +47,12 @@ def test_reprocess_all_carries_on_past_failures(conn, sample_html, monkeypatch, 
     out, err = capsys.readouterr()
     assert f"{good['id']}: Test Article" in out
     assert f"{bad['id']}: failed: gone" in err
+
+
+def test_build_saves_pdfs_with_pdf_extension(tmp_path, sample_pdf, monkeypatch):
+    monkeypatch.setattr(extract_mod, "fetch", lambda url: sample_pdf)
+    monkeypatch.chdir(tmp_path)
+
+    assert main(["build", "http://example.com/paper.pdf"]) == 0
+
+    assert (tmp_path / "A-Paper-About-Sensors.pdf").read_bytes() == sample_pdf

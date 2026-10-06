@@ -4,11 +4,17 @@ from uuid import uuid4
 from . import extract as _extract
 from .db import get_article, insert_article, mark_failed, mark_ready
 from .epub import build_epub, image_sources
+from .storage import kind
 
 
 def build(url):
-    """Fetch, extract, and build an EPUB for a URL. Returns (title, epub bytes)."""
+    """Fetch, extract, and build an EPUB for a URL. Returns (title, file bytes).
+
+    PDFs are passed through as-is rather than converted.
+    """
     html = _extract.fetch(url)
+    if isinstance(html, bytes):
+        return _extract.pdf_title(html, url), html
     title, body, lead_image = _extract.extract(html, url=url)
     if not body.strip():
         raise ValueError("no article content extracted")
@@ -18,10 +24,12 @@ def build(url):
 
 
 def _build_and_store(url, storage, key=None):
-    """The slow part: build an EPUB and upload it. Returns (title, key)."""
+    """The slow part: build the file and upload it. Returns (title, key)."""
     title, data = build(url)
-    key = key or f"epubs/{uuid4().hex}.epub"
-    storage.put(key, data)
+    ext, media_type = kind(data)
+    if not key or not key.endswith(f".{ext}"):  # new, or it changed format
+        key = f"{ext}s/{uuid4().hex}.{ext}"
+    storage.put(key, data, content_type=media_type)
     return title, key
 
 
