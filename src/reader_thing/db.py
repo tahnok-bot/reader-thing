@@ -9,6 +9,7 @@ CREATE TABLE IF NOT EXISTS articles (
     status     TEXT NOT NULL DEFAULT 'ready',
     error      TEXT,
     archived   INTEGER NOT NULL DEFAULT 0,
+    markdown   TEXT,
     created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 """
@@ -30,13 +31,17 @@ def init_db(conn: sqlite3.Connection) -> None:
         conn.execute(
             "ALTER TABLE articles ADD COLUMN archived INTEGER NOT NULL DEFAULT 0"
         )
+    if "markdown" not in cols:
+        conn.execute("ALTER TABLE articles ADD COLUMN markdown TEXT")
     conn.commit()
 
 
-def insert_article(conn, url, title, s3_key, status="ready") -> int:
+def insert_article(conn, url, title, s3_key, status="ready", markdown=None) -> int:
+    """`markdown` is the source for articles pushed as text rather than fetched."""
     cur = conn.execute(
-        "INSERT INTO articles (url, title, s3_key, status) VALUES (?, ?, ?, ?)",
-        (url, title, s3_key, status),
+        "INSERT INTO articles (url, title, s3_key, status, markdown) "
+        "VALUES (?, ?, ?, ?, ?)",
+        (url, title, s3_key, status, markdown),
     )
     conn.commit()
     return cur.lastrowid

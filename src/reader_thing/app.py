@@ -10,6 +10,7 @@ from fastapi.responses import (
     RedirectResponse,
     Response,
 )
+from starlette.routing import Route
 
 from .config import Config, load_config
 from .db import (
@@ -21,6 +22,7 @@ from .db import (
     mark_pending,
     set_archived,
 )
+from .mcp_server import create_mcp
 from .pipeline import process_pending
 from .storage import S3Storage, media_type
 
@@ -32,17 +34,17 @@ def create_app(config: Config | None = None, conn=None, storage=None) -> FastAPI
         config.s3_bucket, endpoint_url=config.s3_endpoint_url
     )
 
-    app = FastAPI(title="reader-thing")
+    mcp, mcp_app = create_mcp(conn, storage)
+    app = FastAPI(title="reader-thing", lifespan=lambda _: mcp.session_manager.run())
     app.state.conn = conn
     app.state.storage = storage
     app.state.config = config
+    app.router.routes.append(
+        Route("/mcp", endpoint=_RequireToken(mcp_app, config.auth_token))
+    )
 
     def check_auth(request: Request) -> None:
-        if not config.auth_token:
-            return
-        auth = request.headers.get("authorization", "")
-        got = auth[7:] if auth.startswith("Bearer ") else request.query_params.get("token")
-        if got != config.auth_token:
+        if not _authorized(request, config.auth_token):
             raise HTTPException(401, "bad token")
 
     def done(request: Request, body: dict, status_code: int = 200):
@@ -110,7 +112,9 @@ def create_app(config: Config | None = None, conn=None, storage=None) -> FastAPI
     @app.get("/articles")
     def api_list(request: Request):
         check_auth(request)
-        return [dict(r) for r in list_articles(conn)]
+        return [
+            {k: r[k] for k in r.keys() if k != "markdown"} for r in list_articles(conn)
+        ]
 
     @app.get("/feed.xml")
     def feed(request: Request):
@@ -141,6 +145,27 @@ def create_app(config: Config | None = None, conn=None, storage=None) -> FastAPI
         )
 
     return app
+
+
+def _authorized(request: Request, token: str | None) -> bool:
+    if not token:
+        return True
+    auth = request.headers.get("authorization", "")
+    got = auth[7:] if auth.startswith("Bearer ") else request.query_params.get("token")
+    return got == token
+
+
+class _RequireToken:
+    """Same shared-secret check as the API, around a plain ASGI app."""
+
+    def __init__(self, app, token):
+        self.app, self.token = app, token
+
+    async def __call__(self, scope, receive, send):
+        if not _authorized(Request(scope), self.token):
+            response = JSONResponse({"detail": "bad token"}, status_code=401)
+            return await response(scope, receive, send)
+        await self.app(scope, receive, send)
 
 
 def _rss(rows, base: str) -> bytes:

@@ -9,6 +9,9 @@ Submit a web page URL through a simple page. It fetches the HTML, extracts the
 article, converts it to a clean EPUB, and stores it, ready to read on your
 device. PDF and EPUB URLs are stored as-is, titled from their metadata.
 
+Agents can also push Markdown over [MCP](#mcp); it's converted to an EPUB the
+same way.
+
 From the list you can retry a failed (or stuck pending) article, archive one
 (it drops out of the feed and into a collapsed section), or delete it along with
 its stored file.
@@ -24,6 +27,21 @@ its stored file.
 - **Config** — S3 credentials, bucket name, and the auth token are read from
   the environment / a `.env` file.
 - **Auth** — single user, so a shared secret is enough.
+
+## MCP
+
+`/mcp` is a [Model Context Protocol](https://modelcontextprotocol.io/) endpoint
+(streamable HTTP, stateless) with one tool, `save_for_later(markdown, title?,
+source_url?)`. It uses the same token as everything else, as a header or, for
+clients that only take a URL, `?token=`:
+
+```sh
+claude mcp add --transport http reader https://reader.zoltanlabs.ca/mcp \
+  --header "Authorization: Bearer $AUTH_TOKEN"
+```
+
+The Markdown is kept in the database, so `reprocess` rebuilds those articles
+from it rather than fetching anything.
 
 ## Development
 
@@ -77,12 +95,18 @@ journalctl --user -u reader-thing -f   # logs
 
 ### Updating
 
-The server doesn't reload code on its own, so after pulling:
+The service runs straight out of this checkout, so there's nothing to pull when
+you're working on `zoltan`. Edits here are what it runs, and `uv sync` / `uv add`
+change its virtualenv right away. The server doesn't reload code on its own, so
+restart it to pick up changes:
 
 ```sh
-git pull && uv sync
+uv sync   # only if dependencies changed
 systemctl --user restart reader-thing
 ```
+
+If changes were pushed from elsewhere, `git pull` first. Schema changes migrate
+the live `reader.db` on startup.
 
 ## Roadmap
 

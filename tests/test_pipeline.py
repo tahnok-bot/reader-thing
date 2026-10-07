@@ -167,3 +167,50 @@ def test_process_url_stores_epubs_as_is(conn, sample_epub, monkeypatch):
     assert row["title"] == "Test Article"
     assert row["s3_key"].startswith("epubs/")
     assert storage.get(row["s3_key"]) == sample_epub
+
+
+def _article_xhtml(storage, key):
+    import io
+    import zipfile
+
+    return zipfile.ZipFile(io.BytesIO(storage.get(key))).read("EPUB/article.xhtml").decode()
+
+
+def test_save_markdown_lifts_leading_heading_into_title(conn):
+    from reader_thing.pipeline import save_markdown
+
+    storage = MemoryStorage()
+    row = save_markdown(conn, storage, "# Notes\n\nSome *text*.\n\n| a |\n|---|\n| 1 |\n")
+
+    assert row["title"] == "Notes"
+    assert row["url"] == ""
+    article = _article_xhtml(storage, row["s3_key"])
+    assert article.count("<h1>") == 1  # the heading isn't repeated in the body
+    assert "<em>text</em>" in article and "<table>" in article
+
+
+def test_save_markdown_keeps_heading_that_differs_from_title(conn):
+    from reader_thing.pipeline import save_markdown
+
+    storage = MemoryStorage()
+    row = save_markdown(conn, storage, "# Part one\n\nText.", title="A Report")
+
+    assert row["title"] == "A Report"
+    assert "Part one" in _article_xhtml(storage, row["s3_key"])
+
+
+def test_reprocess_markdown_rebuilds_without_fetching(conn, monkeypatch):
+    from reader_thing.pipeline import reprocess, save_markdown
+
+    def no_fetch(url):
+        raise AssertionError("should not fetch")
+
+    monkeypatch.setattr(extract_mod, "fetch", no_fetch)
+    storage = MemoryStorage()
+    row = save_markdown(conn, storage, "# Notes\n\nText.", url="http://example.com/src")
+    storage.put(row["s3_key"], b"old epub")
+
+    new = reprocess(conn, storage, row["id"])
+
+    assert (new["title"], new["s3_key"]) == ("Notes", row["s3_key"])
+    assert storage.get(row["s3_key"])[:2] == b"PK"
