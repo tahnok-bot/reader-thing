@@ -8,6 +8,7 @@ CREATE TABLE IF NOT EXISTS articles (
     s3_key     TEXT NOT NULL,
     status     TEXT NOT NULL DEFAULT 'ready',
     error      TEXT,
+    archived   INTEGER NOT NULL DEFAULT 0,
     created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 """
@@ -25,6 +26,10 @@ def init_db(conn: sqlite3.Connection) -> None:
     cols = {r["name"] for r in conn.execute("PRAGMA table_info(articles)")}
     if "error" not in cols:  # migrate databases created before the error column
         conn.execute("ALTER TABLE articles ADD COLUMN error TEXT")
+    if "archived" not in cols:
+        conn.execute(
+            "ALTER TABLE articles ADD COLUMN archived INTEGER NOT NULL DEFAULT 0"
+        )
     conn.commit()
 
 
@@ -56,6 +61,26 @@ def mark_failed(conn, article_id, error) -> None:
         "UPDATE articles SET status = 'failed', error = ? WHERE id = ?",
         (error, article_id),
     )
+    conn.commit()
+
+
+def mark_pending(conn, article_id) -> None:
+    conn.execute(
+        "UPDATE articles SET status = 'pending', error = NULL WHERE id = ?",
+        (article_id,),
+    )
+    conn.commit()
+
+
+def set_archived(conn, article_id, archived=True) -> None:
+    conn.execute(
+        "UPDATE articles SET archived = ? WHERE id = ?", (int(archived), article_id)
+    )
+    conn.commit()
+
+
+def delete_article(conn, article_id) -> None:
+    conn.execute("DELETE FROM articles WHERE id = ?", (article_id,))
     conn.commit()
 
 

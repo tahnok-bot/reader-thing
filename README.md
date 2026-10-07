@@ -9,6 +9,10 @@ Submit a web page URL through a simple page. It fetches the HTML, extracts the
 article, converts it to a clean EPUB, and stores it, ready to read on your
 device. PDF and EPUB URLs are stored as-is, titled from their metadata.
 
+From the list you can retry a failed (or stuck pending) article, archive one
+(it drops out of the feed and into a collapsed section), or delete it along with
+its stored file.
+
 ## Architecture
 
 - **Language** — Python. FastAPI serving a JSON API and a basic submit page.
@@ -45,9 +49,11 @@ token first.
 Runs on `zoltan`, from the checkout at `/data/src/reader-thing`, as user
 `tahnok`.
 
-- **Process** — `uv run reader-thing serve`, listening on `$HOST:$PORT`
-  (default `0.0.0.0:8000`). No reverse proxy or TLS in front of it; clients hit
-  `http://zoltan:8000` directly.
+- **Process** — `uv run reader-thing serve`, listening on `127.0.0.1:8000`
+  (`HOST` is set by a local drop-in,
+  `~/.config/systemd/user/reader-thing.service.d/bind-localhost.conf`).
+- **Proxy** — Caddy (`/etc/caddy/Caddyfile`) terminates TLS and serves it at
+  `https://reader.zoltanlabs.ca/`.
 - **Config** — `.env` in the checkout (not in git); see `.env.example`.
 - **Database** — `reader.db` (SQLite) in the checkout. Back this up; it's the
   only record of which S3 objects belong to which article.

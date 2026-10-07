@@ -12,7 +12,15 @@ from fastapi.responses import (
 )
 
 from .config import Config, load_config
-from .db import connect, get_article, insert_pending, list_articles
+from .db import (
+    connect,
+    delete_article,
+    get_article,
+    insert_pending,
+    list_articles,
+    mark_pending,
+    set_archived,
+)
 from .pipeline import process_pending
 from .storage import S3Storage, media_type
 
@@ -37,6 +45,21 @@ def create_app(config: Config | None = None, conn=None, storage=None) -> FastAPI
         if got != config.auth_token:
             raise HTTPException(401, "bad token")
 
+    def done(request: Request, body: dict, status_code: int = 200):
+        # The browser page wants to land back on the list; API clients
+        # (e.g. the Android share shortcut) want a body they can read.
+        if "text/html" in request.headers.get("accept", ""):
+            token = request.query_params.get("token", "")
+            dest = "/" + (f"?token={token}" if token else "")
+            return RedirectResponse(dest, status_code=303)
+        return JSONResponse(body, status_code=status_code)
+
+    def existing(article_id: int):
+        row = get_article(conn, article_id)
+        if not row:
+            raise HTTPException(404, "not found")
+        return row
+
     @app.get("/", response_class=HTMLResponse)
     def index(request: Request):
         return _page(list_articles(conn), request.query_params.get("token", ""))
@@ -46,15 +69,43 @@ def create_app(config: Config | None = None, conn=None, storage=None) -> FastAPI
         check_auth(request)
         article_id = insert_pending(conn, url)
         background.add_task(process_pending, conn, storage, article_id, url)
-        # The browser submit page wants to land back on the list; API clients
-        # (e.g. the Android share shortcut) want a body they can read.
-        if "text/html" in request.headers.get("accept", ""):
-            token = request.query_params.get("token", "")
-            dest = "/" + (f"?token={token}" if token else "")
-            return RedirectResponse(dest, status_code=303)
-        return JSONResponse(
-            {"id": article_id, "url": url, "status": "pending"}, status_code=202
-        )
+        return done(request, {"id": article_id, "url": url, "status": "pending"}, 202)
+
+    @app.post("/articles/{article_id}/retry")
+    def retry(article_id: int, request: Request, background: BackgroundTasks):
+        # Also covers rows stuck pending because the server restarted mid-fetch.
+        check_auth(request)
+        row = existing(article_id)
+        if row["status"] == "ready":
+            raise HTTPException(409, "already ready")
+        mark_pending(conn, article_id)
+        background.add_task(process_pending, conn, storage, article_id, row["url"])
+        return done(request, {"id": article_id, "status": "pending"}, 202)
+
+    @app.post("/articles/{article_id}/archive")
+    def archive(article_id: int, request: Request):
+        check_auth(request)
+        existing(article_id)
+        set_archived(conn, article_id, True)
+        return done(request, {"id": article_id, "archived": True})
+
+    @app.post("/articles/{article_id}/unarchive")
+    def unarchive(article_id: int, request: Request):
+        check_auth(request)
+        existing(article_id)
+        set_archived(conn, article_id, False)
+        return done(request, {"id": article_id, "archived": False})
+
+    @app.post("/articles/{article_id}/delete")
+    def delete(article_id: int, request: Request):
+        check_auth(request)
+        row = existing(article_id)
+        # Object first: if that fails the row survives and you can try again,
+        # rather than leaving an orphan in the bucket nothing points at.
+        if row["s3_key"]:
+            storage.delete(row["s3_key"])
+        delete_article(conn, article_id)
+        return done(request, {"id": article_id, "deleted": True})
 
     @app.get("/articles")
     def api_list(request: Request):
@@ -66,7 +117,10 @@ def create_app(config: Config | None = None, conn=None, storage=None) -> FastAPI
         # For KOReader's News Downloader: with "download full article" on,
         # it fetches each item link and saves the EPUB (or PDF) as-is.
         check_auth(request)
-        ready = [r for r in list_articles(conn) if r["status"] == "ready"]
+        ready = [
+            r for r in list_articles(conn)
+            if r["status"] == "ready" and not r["archived"]
+        ]
         return Response(
             content=_rss(ready, str(request.base_url).rstrip("/")),
             media_type="application/rss+xml",
@@ -75,9 +129,7 @@ def create_app(config: Config | None = None, conn=None, storage=None) -> FastAPI
     @app.get("/articles/{article_id}")
     def download(article_id: int, request: Request):
         check_auth(request)
-        row = get_article(conn, article_id)
-        if not row:
-            raise HTTPException(404, "not found")
+        row = existing(article_id)
         if row["status"] != "ready":
             raise HTTPException(409, f"not ready: {row['status']}")
         key = row["s3_key"]
@@ -115,24 +167,56 @@ def _rss(rows, base: str) -> bytes:
 def _page(rows, token: str = "") -> str:
     q = f"?token={escape(token)}" if token else ""
 
+    def button(article_id, action, label, confirm=None) -> str:
+        onsubmit = f' onsubmit="return confirm(\'{confirm}\')"' if confirm else ""
+        return (
+            f'<form method="post" action="/articles/{article_id}/{action}{q}"{onsubmit}>'
+            f'<button type="submit">{label}</button></form>'
+        )
+
     def render(r) -> str:
-        title, url, status = escape(r["title"]), escape(r["url"]), r["status"]
+        aid, title, url, status = r["id"], escape(r["title"]), escape(r["url"]), r["status"]
         if status == "ready":
-            head = f'<a href="/articles/{r["id"]}{q}">{title}</a>'
+            head = f'<a href="/articles/{aid}{q}">{title}</a>'
         else:
             head = f'{title} <em>[{escape(status)}]</em>'
-        return f'<li>{head} <small>{url}</small></li>'
+            if r["error"]:
+                head += f' <small class="error">{escape(r["error"])}</small>'
+        buttons = []
+        if status != "ready":
+            buttons.append(button(aid, "retry", "Retry"))
+        if r["archived"]:
+            buttons.append(button(aid, "unarchive", "Unarchive"))
+        else:
+            buttons.append(button(aid, "archive", "Archive"))
+        buttons.append(button(aid, "delete", "Delete", confirm="Delete this article?"))
+        return (
+            f'<li>{head} <small>{url}</small>'
+            f'<span class="actions">{"".join(buttons)}</span></li>'
+        )
 
-    items = "".join(render(r) for r in rows)
+    active = "".join(render(r) for r in rows if not r["archived"])
+    archived = [r for r in rows if r["archived"]]
+    archived_section = (
+        f'<details><summary>Archived ({len(archived)})</summary>'
+        f'<ul>{"".join(render(r) for r in archived)}</ul></details>'
+        if archived else ""
+    )
     return f"""<!doctype html>
 <html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>reader-thing</title></head>
+<title>reader-thing</title>
+<style>
+  li {{ margin-bottom: 0.5em; }}
+  .actions form {{ display: inline; margin-left: 0.3em; }}
+  .error {{ color: #b00; }}
+</style></head>
 <body>
 <h1>reader-thing</h1>
 <form method="post" action="/articles{q}">
   <input name="url" type="url" placeholder="https://..." required size="40">
   <button type="submit">Add</button>
 </form>
-<ul>{items}</ul>
+<ul>{active}</ul>
+{archived_section}
 </body></html>"""
