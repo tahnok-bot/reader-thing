@@ -1,5 +1,5 @@
 # systemd user unit. Install with:
-#   ln -s /data/src/reader-thing/deploy/reader-thing.service ~/.config/systemd/user/
+#   ln -s /tank/src/reader-thing/deploy/reader-thing.service ~/.config/systemd/user/
 #   systemctl --user daemon-reload && systemctl --user enable --now reader-thing
 # Needs lingering (`loginctl enable-linger`) to start at boot without a login.
 
@@ -9,7 +9,7 @@ After=network-online.target
 Wants=network-online.target
 
 [Service]
-WorkingDirectory=/data/src/reader-thing
+WorkingDirectory=/tank/src/reader-thing
 # Config (S3, auth token, HOST/PORT) comes from .env in the working directory.
 ExecStart=/home/tahnok/.local/bin/uv run --frozen reader-thing serve
 Restart=on-failure

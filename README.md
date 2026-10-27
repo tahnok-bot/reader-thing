@@ -64,7 +64,7 @@ token first.
 
 ## Deployment
 
-Runs on `zoltan`, from the checkout at `/data/src/reader-thing`, as user
+Runs on `zoltan`, from the checkout at `/tank/src/reader-thing`, as user
 `tahnok`.
 
 - **Process** — `uv run reader-thing serve`, listening on `127.0.0.1:8000`
@@ -87,7 +87,7 @@ restarts on failure and, since lingering is enabled for `tahnok`, starts at
 boot.
 
 ```sh
-ln -s /data/src/reader-thing/deploy/reader-thing.service ~/.config/systemd/user/
+ln -s /tank/src/reader-thing/deploy/reader-thing.service ~/.config/systemd/user/
 systemctl --user daemon-reload
 systemctl --user enable --now reader-thing
 journalctl --user -u reader-thing -f   # logs
