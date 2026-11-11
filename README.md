@@ -93,6 +93,24 @@ systemctl --user enable --now reader-thing
 journalctl --user -u reader-thing -f   # logs
 ```
 
+### Docker
+
+The `Dockerfile` builds an image that runs `reader-thing serve` on port 8000,
+with the SQLite database at `/data/reader.db` on a volume. `compose.yaml` wires
+that up: config from `.env`, the database in `./data/`, and the port published
+on `127.0.0.1:8000` for a reverse proxy in front.
+
+```sh
+mkdir data && cp reader.db data/   # bring the database along when moving hosts
+docker compose up -d --build
+docker compose logs -f
+docker compose exec reader-thing reader-thing reprocess --all
+```
+
+The container runs as uid 1000, so `data/` needs to be writable by it.
+`DATABASE_PATH`, `HOST` and `PORT` in `.env` are overridden; the rest (S3, `AUTH_TOKEN`) is used
+as-is.
+
 ### Updating
 
 The service runs straight out of this checkout, so there's nothing to pull when

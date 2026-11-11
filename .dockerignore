@@ -1,0 +1,10 @@
+.git
+.venv
+.env
+.pytest_cache
+__pycache__
+*.db
+*.db-*
+*.db.bak*
+tests
+deploy
